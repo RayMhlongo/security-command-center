@@ -18,7 +18,7 @@ import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 import toast, { Toaster } from 'react-hot-toast';
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { auth, db, provider } from './lib/firebase';
+import { auth, db, isFirebaseConfigured, provider } from './lib/firebase';
 import { getDashboardCache, setDashboardCache } from './lib/offlineCache';
 
 type Role = 'owner' | 'management' | 'admin' | 'guard';
@@ -102,6 +102,10 @@ function App() {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
 
+  if (!isFirebaseConfigured) {
+    return <ConfigMissingScreen />;
+  }
+
   useEffect(() => {
     return onAuthStateChanged(auth, async (u) => {
       setUser(u);
@@ -125,6 +129,22 @@ function App() {
     return <div className="min-h-screen grid place-items-center p-6">This dashboard is limited to Owner/Management/Admin roles.</div>;
   }
   return <Dashboard profile={profile} />;
+}
+
+function ConfigMissingScreen() {
+  return (
+    <div className="min-h-[100dvh] p-6 grid place-items-center text-white">
+      <div className="w-full max-w-xl rounded-2xl border border-red-500/40 bg-black/70 p-6 space-y-3">
+        <h1 className="text-xl font-semibold">Configuration Required</h1>
+        <p className="text-sm text-white/80">
+          Firebase environment values are missing in this build. Add Vite Firebase variables and rebuild.
+        </p>
+        <p className="text-xs text-white/60">
+          Required: `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_STORAGE_BUCKET`, `VITE_FIREBASE_MESSAGING_SENDER_ID`, `VITE_FIREBASE_APP_ID`.
+        </p>
+      </div>
+    </div>
+  );
 }
 
 function Login() {

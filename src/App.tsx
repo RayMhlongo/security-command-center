@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate, Route, Routes, useNavigate } from 'react-router-dom';
-import { onAuthStateChanged, signInWithPopup, signOut } from 'firebase/auth';
+import { getRedirectResult, onAuthStateChanged, signInWithPopup, signInWithRedirect, signOut } from 'firebase/auth';
 import {
   collection,
   doc,
@@ -107,6 +107,12 @@ function App() {
   }
 
   useEffect(() => {
+    getRedirectResult(auth).catch(() => {
+      // popup/redirect fallback path
+    });
+  }, []);
+
+  useEffect(() => {
     return onAuthStateChanged(auth, async (u) => {
       setUser(u);
       if (!u) {
@@ -151,8 +157,13 @@ function Login() {
   const login = async () => {
     try {
       await signInWithPopup(auth, provider);
-    } catch {
-      toast.error('Google login failed');
+    } catch (popupError) {
+      try {
+        await signInWithRedirect(auth, provider);
+      } catch (redirectError) {
+        toast.error('Google login failed');
+        console.error(popupError, redirectError);
+      }
     }
   };
 

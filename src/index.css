@@ -1,0 +1,13 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+body {
+  margin: 0;
+  color: #fff;
+  background: linear-gradient(140deg, #0c1733, #1a2f5f 48%, #0d1a36);
+}

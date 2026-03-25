@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate, Route, Routes, useNavigate } from 'react-router-dom';
 import { getRedirectResult, onAuthStateChanged, signInWithPopup, signInWithRedirect, signOut } from 'firebase/auth';
+import type { User } from 'firebase/auth';
 import {
   collection,
   doc,
@@ -13,6 +14,7 @@ import {
   setDoc,
   where
 } from 'firebase/firestore';
+import type { QueryConstraint } from 'firebase/firestore';
 import QRCode from 'qrcode';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
@@ -83,6 +85,37 @@ type DashboardSnapshot = {
   attendanceLogs: AttendanceEntry[];
 };
 
+type AlertRecord = {
+  id: string;
+  company: Company;
+  createdAt?: string;
+  guardName?: string;
+  guardUid?: string;
+  gps?: {
+    lat?: number;
+    lng?: number;
+  };
+};
+
+type GoogleMapsApi = {
+  maps: {
+    Map: new (
+      element: HTMLElement,
+      options: {
+        center: { lat: number; lng: number };
+        zoom: number;
+        mapTypeControl?: boolean;
+        streetViewControl?: boolean;
+      }
+    ) => unknown;
+    Marker: new (options: {
+      map: unknown;
+      position: { lat: number; lng: number };
+      title: string;
+    }) => unknown;
+  };
+};
+
 const defaultMetric: Metric = {
   activeGuards: 0,
   incidentsToday: 0,
@@ -98,13 +131,9 @@ const fallbackBranches: Branch[] = [
 ];
 
 function App() {
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
-
-  if (!isFirebaseConfigured) {
-    return <ConfigMissingScreen />;
-  }
 
   useEffect(() => {
     getRedirectResult(auth).catch(() => {
@@ -127,6 +156,10 @@ function App() {
       setLoading(false);
     });
   }, []);
+
+  if (!isFirebaseConfigured) {
+    return <ConfigMissingScreen />;
+  }
 
   if (loading) return <div className="min-h-screen grid place-items-center">Loading...</div>;
   if (!user) return <Login />;
@@ -179,11 +212,18 @@ function Login() {
   );
 }
 
-function RoleSetup({ user, onDone }: { user: any; onDone: (profile: UserProfile) => void }) {
+function RoleSetup({ user, onDone }: { user: User; onDone: (profile: UserProfile) => void }) {
   const [role, setRole] = useState<Role>('management');
   const [companyCode, setCompanyCode] = useState<Company>('DRS');
   const [branches, setBranches] = useState<Branch[]>(fallbackBranches);
   const [branchId, setBranchId] = useState('drs-jhb-central');
+  const availableBranches = useMemo(
+    () => branches.filter((branch) => branch.companyCode === companyCode),
+    [branches, companyCode]
+  );
+  const effectiveBranchId = availableBranches.some((branch) => branch.id === branchId)
+    ? branchId
+    : (availableBranches[0]?.id ?? '');
 
   useEffect(() => {
     const unsubs = [
@@ -199,15 +239,8 @@ function RoleSetup({ user, onDone }: { user: any; onDone: (profile: UserProfile)
     return () => unsubs.forEach((unsub) => unsub());
   }, []);
 
-  useEffect(() => {
-    const companyBranches = branches.filter((b) => b.companyCode === companyCode);
-    if (companyBranches.length > 0) {
-      setBranchId(companyBranches[0].id);
-    }
-  }, [companyCode, branches]);
-
   const save = async () => {
-    const selectedBranch = branches.find((b) => b.id === branchId && b.companyCode === companyCode);
+    const selectedBranch = availableBranches.find((branch) => branch.id === effectiveBranchId);
     if (role !== 'owner' && !selectedBranch) {
       toast.error('Select a branch first.');
       return;
@@ -242,8 +275,8 @@ function RoleSetup({ user, onDone }: { user: any; onDone: (profile: UserProfile)
           <option value="BIG5">Big 5</option>
         </select>
         {role !== 'owner' && (
-          <select className="w-full p-3 rounded bg-black border border-white/20" value={branchId} onChange={(e) => setBranchId(e.target.value)}>
-            {branches.filter((b) => b.companyCode === companyCode).map((branch) => (
+          <select className="w-full p-3 rounded bg-black border border-white/20" value={effectiveBranchId} onChange={(e) => setBranchId(e.target.value)}>
+            {availableBranches.map((branch) => (
               <option key={branch.id} value={branch.id}>{branch.name}</option>
             ))}
           </select>
@@ -265,18 +298,18 @@ function Dashboard({ profile }: { profile: UserProfile }) {
   const [selectedCompany, setSelectedCompany] = useState<'ALL' | Company>(profile.role === 'owner' ? 'ALL' : profile.companyCode);
   const [selectedBranch, setSelectedBranch] = useState<string>(profile.role === 'owner' ? 'ALL' : profile.branchId);
   const [lastSync, setLastSync] = useState<string>('Not synced yet');
-
-  const branchOptions = branches.filter((branch) => selectedCompany === 'ALL' ? false : branch.companyCode === selectedCompany);
-
-  useEffect(() => {
+  const branchOptions = useMemo(
+    () => (selectedCompany === 'ALL' ? [] : branches.filter((branch) => branch.companyCode === selectedCompany)),
+    [branches, selectedCompany]
+  );
+  const effectiveSelectedBranch = useMemo(() => {
     if (selectedCompany === 'ALL') {
-      setSelectedBranch('ALL');
-      return;
+      return 'ALL';
     }
-    if (!branchOptions.some((b) => b.id === selectedBranch)) {
-      setSelectedBranch(branchOptions[0]?.id || 'ALL');
-    }
-  }, [selectedCompany, branches]);
+    return branchOptions.some((branch) => branch.id === selectedBranch)
+      ? selectedBranch
+      : (branchOptions[0]?.id ?? 'ALL');
+  }, [branchOptions, selectedBranch, selectedCompany]);
 
   useEffect(() => {
     const unsubs = [
@@ -294,11 +327,11 @@ function Dashboard({ profile }: { profile: UserProfile }) {
 
   useEffect(() => {
     let cancelled = false;
-    const cacheKey = `${selectedCompany}_${selectedBranch}`;
+    const cacheKey = `${selectedCompany}_${effectiveSelectedBranch}`;
 
     const refresh = async () => {
       try {
-        const data = await loadDashboardSnapshot(selectedCompany, selectedBranch);
+        const data = await loadDashboardSnapshot(selectedCompany, effectiveSelectedBranch);
         if (cancelled) return;
         setDrs(data.drs);
         setBig5(data.big5);
@@ -323,10 +356,10 @@ function Dashboard({ profile }: { profile: UserProfile }) {
     refresh();
     const timer = setInterval(refresh, 20000);
     return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
-  }, [selectedCompany, selectedBranch]);
+        cancelled = true;
+        clearInterval(timer);
+      };
+  }, [selectedCompany, effectiveSelectedBranch]);
 
   const logOut = async () => {
     await signOut(auth);
@@ -367,7 +400,7 @@ function Dashboard({ profile }: { profile: UserProfile }) {
           </select>
           <select
             className="p-2 rounded bg-black border border-white/20"
-            value={selectedBranch}
+            value={effectiveSelectedBranch}
             onChange={(e) => setSelectedBranch(e.target.value)}
             disabled={profile.role !== 'owner' || selectedCompany === 'ALL'}
           >
@@ -377,7 +410,7 @@ function Dashboard({ profile }: { profile: UserProfile }) {
             ))}
           </select>
           <div className="text-xs text-white/70 flex items-center">
-            Scope: {selectedCompany === 'ALL' ? 'All Companies / All Branches' : `${selectedCompany} / ${selectedBranch === 'ALL' ? 'All Branches' : (branchOptions.find((b) => b.id === selectedBranch)?.name || selectedBranch)}`}
+            Scope: {selectedCompany === 'ALL' ? 'All Companies / All Branches' : `${selectedCompany} / ${effectiveSelectedBranch === 'ALL' ? 'All Branches' : (branchOptions.find((branch) => branch.id === effectiveSelectedBranch)?.name || effectiveSelectedBranch)}`}
           </div>
         </section>
 
@@ -440,9 +473,9 @@ function Dashboard({ profile }: { profile: UserProfile }) {
       </main>
 
       <Routes>
-        <Route path="/reports" element={<ReportsView selectedCompany={selectedCompany} selectedBranch={selectedBranch} />} />
+        <Route path="/reports" element={<ReportsView selectedCompany={selectedCompany} selectedBranch={effectiveSelectedBranch} />} />
         <Route path="/qr" element={<QrView />} />
-        <Route path="/alerts" element={<AlertsView selectedCompany={selectedCompany} selectedBranch={selectedBranch} />} />
+        <Route path="/alerts" element={<AlertsView selectedCompany={selectedCompany} selectedBranch={effectiveSelectedBranch} />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
       <Toaster position="top-right" />
@@ -558,22 +591,28 @@ function QrView() {
 }
 
 function AlertsView({ selectedCompany, selectedBranch }: { selectedCompany: 'ALL' | Company; selectedBranch: string }) {
-  const [alerts, setAlerts] = useState<Array<Record<string, any>>>([]);
+  const [alerts, setAlerts] = useState<AlertRecord[]>([]);
 
   useEffect(() => {
     let cancelled = false;
     const run = async () => {
       const companies: Company[] = selectedCompany === 'ALL' ? ['DRS', 'BIG5'] : [selectedCompany];
-      const merged: Array<Record<string, any>> = [];
+      const merged: AlertRecord[] = [];
       for (const company of companies) {
-        const constraints: any[] = [];
+        const constraints: QueryConstraint[] = [];
         if (selectedBranch !== 'ALL') {
           constraints.push(where('branchId', '==', selectedBranch));
         }
         constraints.push(orderBy('createdAt', 'desc'));
         constraints.push(limit(20));
         const snap = await getDocs(query(collection(db, `${company}_panic`), ...constraints));
-        merged.push(...snap.docs.map((d) => ({ id: d.id, company, ...d.data() })));
+        merged.push(
+          ...snap.docs.map((docSnapshot) => ({
+            id: docSnapshot.id,
+            company,
+            ...(docSnapshot.data() as Omit<AlertRecord, 'id' | 'company'>)
+          }))
+        );
       }
       if (!cancelled) {
         setAlerts(merged.sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || ''))));
@@ -612,10 +651,11 @@ function LiveMap({ points }: { points: MapPoint[] }) {
     if (!ref.current || !import.meta.env.VITE_GOOGLE_MAPS_API_KEY) return;
     const setup = async () => {
       await loadMaps();
-      if (!window.google?.maps) return;
+      const mapsApi = window.google?.maps;
+      if (!mapsApi) return;
       const center = points[0] ? { lat: points[0].lat, lng: points[0].lng } : { lat: -26.2041, lng: 28.0473 };
-      const map = new window.google.maps.Map(ref.current!, { center, zoom: 10, mapTypeControl: false, streetViewControl: false });
-      points.forEach((p) => new window.google.maps.Marker({ map, position: { lat: p.lat, lng: p.lng }, title: `${p.company} ${p.label}` }));
+      const map = new mapsApi.Map(ref.current!, { center, zoom: 10, mapTypeControl: false, streetViewControl: false });
+      points.forEach((p) => new mapsApi.Marker({ map, position: { lat: p.lat, lng: p.lng }, title: `${p.company} ${p.label}` }));
     };
     setup().catch(console.error);
   }, [points]);
@@ -710,7 +750,7 @@ async function loadDashboardSnapshot(selectedCompany: 'ALL' | Company, selectedB
 }
 
 function scopedCollectionQuery(path: string, branchId: string, rowLimit: number) {
-  const constraints: any[] = [];
+  const constraints: QueryConstraint[] = [];
   if (branchId !== 'ALL') {
     constraints.push(where('branchId', '==', branchId));
   }
@@ -751,7 +791,7 @@ async function loadMaps() {
 
 declare global {
   interface Window {
-    google?: any;
+    google?: GoogleMapsApi;
   }
 }
 

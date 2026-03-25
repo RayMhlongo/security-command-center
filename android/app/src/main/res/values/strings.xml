@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Security Command Center</string>
+    <string name="title_activity_main">Security Command Center</string>
+    <string name="package_name">za.co.security.commandcenter</string>
+    <string name="custom_url_scheme">za.co.security.commandcenter</string>
+</resources>

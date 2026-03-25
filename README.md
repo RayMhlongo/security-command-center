@@ -38,6 +38,7 @@ Dashboard now shows scoped, near-real-time data for:
 3. Fill Firebase + Maps + Sheets values
 4. `npm run dev`
 5. `npm run build`
+6. `npm run android:sync`
 
 ## Firebase Deploy
 - `firebase deploy --only firestore:rules,firestore:indexes,hosting`
@@ -48,6 +49,22 @@ Required secrets:
 - `FIREBASE_PROJECT_ID`
 - `FIREBASE_CLIENT_EMAIL`
 - `FIREBASE_PRIVATE_KEY`
+
+## Android APK Build
+1. `npm run build`
+2. `npm run android:sync`
+3. `npm run android:open`
+4. Build signed APK in Android Studio
+
+## GitHub APK Action Secrets
+Set these repository secrets so release APK builds are fully configured:
+- `VITE_FIREBASE_API_KEY`
+- `VITE_FIREBASE_AUTH_DOMAIN`
+- `VITE_FIREBASE_PROJECT_ID`
+- `VITE_FIREBASE_STORAGE_BUCKET`
+- `VITE_FIREBASE_MESSAGING_SENDER_ID`
+- `VITE_FIREBASE_APP_ID`
+- `VITE_GOOGLE_MAPS_API_KEY`
 
 ## Stress Test
 - `npm run stress:test`
